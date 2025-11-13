@@ -103,7 +103,7 @@
                         <SfCard CssClass="mt-3">
                             <CardContent>
                                 <h5 class="card-title">Audio Player</h5>
-                                <audio controls class="w-100 mb-3 mt-2" @key="_lastResult.AudioDataUrl">
+                                <audio controls class="w-100 mb-3 mt-2" @key="_audioKey">
                                     <source src="@_lastResult.AudioDataUrl" type="audio/wav">
                                     Your browser does not support the audio element.
                                 </audio>
@@ -143,6 +143,7 @@
     private int ProsodyRate { get; set; }
     private string _outputFileName = "TextToSpeechAudio";
     private int _wordCount { get; set; } = 0;
+    private Guid _audioKey = Guid.NewGuid();
 
     private async Task OnChange(UploadChangeEventArgs args)
     {
@@ -202,6 +203,7 @@
         try
         {
             _lastResult = await TextToSpeechService.ConvertTextToSpeechAsync(_fileContent, ProsodyRate);
+            _audioKey = Guid.NewGuid();
         }
         finally
         {
@@ -217,10 +219,10 @@
         var fileName = string.IsNullOrWhiteSpace(_outputFileName) ? "TextToSpeechAudio.wav" : $"{_outputFileName}.wav";
 
         await JSRuntime.InvokeVoidAsync(
-         "downloadFile",
-                 Convert.ToBase64String(_lastResult.AudioData),
+            "downloadFile",
+            Convert.ToBase64String(_lastResult.AudioData),
             fileName,
-          "audio/wav");
+            "audio/wav");
     }
 
     private int CalculateApproximateWpm()
