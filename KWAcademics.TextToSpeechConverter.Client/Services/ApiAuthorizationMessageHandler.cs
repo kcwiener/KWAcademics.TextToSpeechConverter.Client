@@ -17,5 +17,5 @@ public class ApiAuthorizationMessageHandler : AuthorizationMessageHandler
         ConfigureHandler(
             authorizedUrls: new[] { apiBaseUrl },
             scopes: defaultScopes);
-  }
+    }
 }
