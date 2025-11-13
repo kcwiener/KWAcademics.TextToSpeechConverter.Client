@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TextToSpeechConverter</title>
+    <base href="/" />
+    <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link href="https://cdn.syncfusion.com/blazor/31.2.5/styles/bootstrap5.css" rel="stylesheet" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="KWAcademics.TextToSpeechConverter.Client.styles.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+     <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+   <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">??</span>
+    </div>
+
+    <script src="https://cdn.syncfusion.com/blazor/31.2.5/syncfusion-blazor.min.js" type="text/javascript"></script>
+
+    <script>
+        // Download file function
+    window.downloadFile = function (base64String, fileName, contentType) {
+            const byteCharacters = atob(base64String);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+   const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: contentType });
+       const url = window.URL.createObjectURL(blob);
+     const link = document.createElement('a');
+         link.href = url;
+link.download = fileName;
+   document.body.appendChild(link);
+      link.click();
+  document.body.removeChild(link);
+       window.URL.revokeObjectURL(url);
+        };
+    </script>
+
+    <!-- Microsoft Authentication Library for JavaScript (MSAL.js) - Required for Azure AD authentication -->
+    <script src="_content/Microsoft.Authentication.WebAssembly.Msal/AuthenticationService.js"></script>
+
+    <!-- Suppress Entra MeControl postMessage errors during logout -->
+    <script>
+    // Global error handler to suppress MeControl postMessage errors
+        window.addEventListener('error', function (event) {
+        // Check if it's a postMessage error from MeControl
+      if (event.message && event.message.includes('postMessage')) {
+ console.warn('Suppressed MeControl postMessage error:', event.message);
+      // Prevent the error from showing in console
+      event.preventDefault();
+    event.stopPropagation();
+     return true;
+      }
+
+            // Check for MeControl script errors
+      if (event.filename && event.filename.includes('MeControl')) {
+      console.warn('Suppressed MeControl error:', event.message);
+       event.preventDefault();
+         event.stopPropagation();
+       return true;
+         }
+   }, true);
+
+        // Handle unhandled promise rejections from postMessage
+        window.addEventListener('unhandledrejection', function (event) {
+            if (event.reason && event.reason.message &&
+                event.reason.message.includes('postMessage')) {
+           console.warn('Suppressed postMessage promise rejection');
+      event.preventDefault();
+      }
+        });
+
+        // Override Window.prototype.postMessage to catch and filter bad calls
+     const originalPostMessage = window.postMessage;
+    window.postMessage = function (...args) {
+      try {
+                // Validate arguments before calling original postMessage
+       if (args.length > 0 && args[0] !== undefined && args[0] !== null) {
+          // Try to convert to sequence - if it fails, log and skip
+         if (typeof args[0] === 'object' && !Array.isArray(args[0])) {
+             try {
+            JSON.stringify(args[0]);
+        } catch (e) {
+         console.warn('Blocked invalid postMessage call with non-serializable object');
+     return;
+         }
+           }
+     return originalPostMessage.apply(this, args);
+     }
+   } catch (error) {
+         console.warn('Blocked postMessage error:', error.message);
+            }
+        };
+    </script>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+
+</html>
