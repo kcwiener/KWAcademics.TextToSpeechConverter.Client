@@ -1,0 +1,296 @@
+@page "/"
+@attribute [Authorize]
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using KWAcademics.TextToSpeechConverter.Client.Services
+@using Syncfusion.Blazor.Inputs
+@using Syncfusion.Blazor.Cards
+@using Syncfusion.Blazor.Buttons
+@using System.IO;
+
+@inject TextToSpeechApiService TextToSpeechService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Text to Speech Converter</PageTitle>
+
+<div class="container">
+    <h1>Text to Speech Converter</h1>
+
+    <SfCard>
+        <CardContent>
+            <div>
+                <div class="col-md-12">
+                    <div class="mb-3">
+                        <label class="form-label">Select Text File:</label>
+                        <SfUploader ID="fileUpload"
+                                    AllowedExtensions=".txt"
+                                    AutoUpload="true"
+                                    MaxFileSize="1048576"
+                                    AllowMultiple="false"
+                                    ShowFileList="true">
+                            <UploaderEvents ValueChange="OnChange"></UploaderEvents>
+                        </SfUploader>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Passage Preview:</label>
+                        <SfTextBox ID="contentPreview"
+                                   Multiline="true"
+                                   CssClass="file-contents"
+                                   FloatLabelType="@FloatLabelType.Never"
+                                   @bind-Value="_fileContent"
+                                   Placeholder="Upload a text file or type/paste your text here..."
+                                   Readonly="false"
+                                   Input="OnTextInput">
+                        </SfTextBox>
+                        <div class="mt-1">
+                            @if (_wordCount > 200)
+                            {
+                                <div class="alert alert-warning">
+                                    Text is too long. Maximum word count is 200, but got @_wordCount words.
+                                </div>
+                            }
+                            else
+                            {
+                                <small class="text-muted">Word count: @_wordCount/200</small>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Speech Rate: @ProsodyRate%</label>
+                        <div class="d-flex align-items-center">
+                            <span class="me-2">Slower</span>
+                            <SfSlider TValue="int"
+                                      ID="speedSlider"
+                                      @bind-Value="ProsodyRate"
+                                      Min="-50"
+                                      Max="50"
+                                      Step="1"
+                                      ShowButtons="true" />
+                            <span class="ms-2">Faster</span>
+                        </div>
+                        <small class="text-muted">Adjust the speaking rate (-50% to +50%)</small>
+                    </div>
+
+                    <SfButton CssClass="e-primary"
+                              IsPrimary="true"
+                              @onclick="ConvertToSpeech"
+                              Disabled="@(_isConverting || string.IsNullOrEmpty(_fileContent) || _wordCount > 200)">
+                        @if (_isConverting)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            <span class="ms-2">Converting...</span>
+                        }
+                        else
+                        {
+                            <span>Convert to Speech</span>
+                        }
+                    </SfButton>
+                </div>
+            </div>
+
+            @if (_lastResult != null)
+            {
+                <div class="mt-4">
+                    <div class="@(_lastResult.Success ? "alert alert-success" : "alert alert-danger")">
+                        @_lastResult.Message
+                    </div>
+                </div>
+            }
+
+            <div class="mt-4">
+                <SfCard CssClass="mt-3">
+                    <CardContent>
+                        <h5 class="card-title">Audio Player</h5>
+                        <audio id="audioPlayer" controls class="w-100 mb-3 mt-2" preload="auto" src="@_currentBlobUrl">
+                            Your browser does not support the audio element.
+                        </audio>
+
+                        @if (_lastResult?.Success == true)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Output File Name:</label>
+                                <div class="d-flex">
+                                    <SfTextBox CssClass="me-2"
+                                               Placeholder="Enter file name"
+                                               FloatLabelType="@FloatLabelType.Never"
+                                               @bind-Value="_outputFileName" />
+                                    <SfButton CssClass="download-button" @onclick="DownloadAudio">
+                                        <i class="e-icons e-download"></i> Download
+                                    </SfButton>
+                                </div>
+                            </div>
+
+                            <h5 class="card-title">Conversion Statistics</h5>
+                            <div class="stats-container mt-2">
+                                <p class="card-text">Duration: @_lastResult.Duration.Minutes:@_lastResult.Duration.Seconds.ToString("D2")</p>
+                                <p class="card-text">Word Count: @_lastResult.WordCount words</p>
+                                <p class="card-text">Actual WPM: @_lastResult.Wpm.ToString("F1")</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Audio will appear here after conversion</p>
+                        }
+                    </CardContent>
+                </SfCard>
+            </div>
+        </CardContent>
+    </SfCard>
+</div>
+
+@code {
+    private string _fileContent = "";
+    private bool _isConverting = false;
+    private TextToSpeechApiService.ConversionResult? _lastResult;
+    private int ProsodyRate { get; set; }
+    private string _outputFileName = "TextToSpeechAudio";
+    private int _wordCount { get; set; } = 0;
+    private string? _currentBlobUrl; // Track current blob URL for cleanup
+
+    private async Task OnChange(UploadChangeEventArgs args)
+    {
+        try
+        {
+            foreach (var file in args.Files)
+            {
+                using var stream = file.File.OpenReadStream(long.MaxValue);
+                using var reader = new StreamReader(stream);
+
+                _fileContent = await reader.ReadToEndAsync();
+                UpdateWordCount();
+
+                _outputFileName = string.IsNullOrEmpty(file.File.Name)
+                  ? "TextToSpeechAudio"
+               : Path.GetFileNameWithoutExtension(file.File.Name);
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _lastResult = new TextToSpeechApiService.ConversionResult
+            {
+                Success = false,
+                Message = $"Error loading file: {ex.Message}"
+            };
+            _fileContent = "";
+            UpdateWordCount();
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateWordCount()
+    {
+        _wordCount = _fileContent.Split(new[] { ' ', '\n', '\r', '\t' },
+        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+    }
+
+    private void OnTextInput(InputEventArgs args)
+    {
+        // Update _fileContent with the current value from the input event
+        _fileContent = args.Value;
+
+        // Update word count when user manually types in the text box
+        UpdateWordCount();
+        StateHasChanged();
+    }
+
+    private async Task ConvertToSpeech()
+    {
+        if (string.IsNullOrWhiteSpace(_fileContent))
+        {
+            return;
+        }
+        _isConverting = true;
+
+        try
+        {
+            _lastResult = await TextToSpeechService.ConvertTextToSpeechAsync(_fileContent, ProsodyRate);
+            StateHasChanged();
+
+            if (_lastResult?.Success == true)
+            {
+                // In order to load the audio element consistently across browsers, we need to convert to blob data
+                await LoadAudioWithBlobUrl();
+            }
+        }
+        finally
+        {
+            _isConverting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAudioWithBlobUrl()
+    {
+        try
+        {
+            // Clean up previous blob URL if exists
+            if (!string.IsNullOrEmpty(_currentBlobUrl))
+            {
+                await JSRuntime.InvokeVoidAsync("audioTools.revokeBlobUrl", _currentBlobUrl);
+            }
+
+            // Extract base64 data (remove data:audio/mpeg;base64, prefix)
+            var base64Data = _lastResult?.AudioDataUrl?.Split(',').LastOrDefault();
+            if (string.IsNullOrEmpty(base64Data))
+            {
+                Console.WriteLine("No audio data to load");
+                return;
+            }
+
+            // Convert base64 to blob URL
+            _currentBlobUrl = await JSRuntime.InvokeAsync<string>(
+              "audioTools.base64ToBlobUrl",
+               base64Data,
+              "audio/mpeg"
+              );
+
+            Console.WriteLine($"Created blob URL: {_currentBlobUrl}");
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading audio: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!string.IsNullOrEmpty(_currentBlobUrl))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("audioTools.revokeBlobUrl", _currentBlobUrl);
+            }
+            catch
+            {
+                // Ignore errors during cleanup
+            }
+        }
+    }
+
+    private async Task DownloadAudio()
+    {
+        if (_lastResult?.AudioData == null) return;
+
+        var fileName = string.IsNullOrWhiteSpace(_outputFileName) ? "TextToSpeechAudio.mp3" : $"{_outputFileName}.mp3";
+
+        await JSRuntime.InvokeVoidAsync(
+            "downloadFile",
+            Convert.ToBase64String(_lastResult.AudioData),
+            fileName,
+            "audio/mpeg");
+    }
+
+    private int CalculateApproximateWpm()
+    {
+        const double baseWpm = 210.0;
+        double multiplier = 1.0 + (ProsodyRate / 100.0);
+        return (int)Math.Round(baseWpm * multiplier);
+    }
+}
